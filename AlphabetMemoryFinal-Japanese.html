@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>メモリーひらがな</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(6, 50px);
+      grid-gap: 10px;
+      margin-top: 20px;
+    }
+    .symbol {
+      width: 50px;
+      height: 50px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+      border: 2px solid black;
+      cursor: pointer;
+      opacity: 1;
+      transition: opacity 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .highlight {
+      background-color: yellow;
+      box-shadow: 0 0 15px 5px yellow;
+    }
+    .clicked {
+      background-color: lightgreen;
+      opacity: 1;
+      box-shadow: 0 0 15px 5px lightgreen;
+    }
+    button, select, label, #scoreDisplay {
+      font-size: 16px;
+    }
+    button {
+      padding: 8px 16px;
+      cursor: pointer;
+      margin-bottom: 15px;
+    }
+    .select-container {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 10px;
+      gap: 20px;
+    }
+    h1 {
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+    #scoreDisplay {
+      margin-top: 10px;
+    }
+    .button-container {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+    }
+    .mode-container {
+      margin-top: 5px;
+    }
+    .mode-container label {
+      margin-right: 10px;
+    }
+    @media (max-width: 600px) {
+      .grid {
+        grid-template-columns: repeat(3, 50px);
+      }
+      .select-container {
+        flex-direction: column;
+        align-items: center;
+      }
+      .button-container {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>メモリーひらがな</h1>
+
+  <div class="select-container">
+    <div class="speed-select">
+      <label for="speed">スピード: </label>
+      <select id="speed">
+        <option value="1">1x</option>
+        <option value="1.5">1.5x</option>
+        <option value="2">2x</option>
+        <option value="2.5">2.5x</option>
+        <option value="3">3x</option>
+      </select>
+    </div>
+
+    <div class="symbol-count-select">
+      <label for="symbolCount">文字数: </label>
+      <select id="symbolCount"></select>
+    </div>
+  </div>
+
+  <div class="mode-container">
+    <label>
+      <input type="radio" name="mode" value="alphabet+sound" checked>
+      文字 + 音声
+    </label>
+    <label>
+      <input type="radio" name="mode" value="sound-only">
+      音声のみ
+    </label>
+    <label>
+      <input type="radio" name="mode" value="alphabet-only">
+      文字のみ
+    </label>
+  </div>
+
+  <div class="grid" id="symbolGrid"></div>
+
+  <div class="button-container">
+    <button id="startGameButton">ゲーム開始</button>
+    <button id="randomizeSymbolsButton">ランダム</button>
+  </div>
+
+  <div id="gameMessage"></div>
+  <div id="scoreDisplay">現在のスコア: 0</div>
+
+  <script>
+    let synth = window.speechSynthesis;
+    let sequence = [];
+    let playerSequence = [];
+    let gameInProgress = false;
+    let currentRound = 0;
+    let score = 0;
+    let currentUtterance = null;
+    let speed = 1.5;
+    let gameMode = 'alphabet+sound';
+
+    const alphabet = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん".split("");
+
+    const symbolsContainer = document.getElementById('symbolGrid');
+    const symbolCountSelect = document.getElementById('symbolCount');
+
+    function populateSymbolCountOptions() {
+      symbolCountSelect.innerHTML = '';
+      for (let i = 1; i <= alphabet.length; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = i === alphabet.length ? `最大 (${i})` : i;
+        symbolCountSelect.appendChild(option);
+      }
+      symbolCountSelect.value = 6;
+    }
+
+    function generateSymbolGrid(count) {
+      symbolsContainer.innerHTML = '';
+      const shuffled = [...alphabet].sort(() => Math.random() - 0.5).slice(0, count);
+      shuffled.forEach(letter => {
+        const div = document.createElement('div');
+        div.className = 'symbol';
+        div.textContent = letter;
+        div.onclick = () => handleSymbolClick(div);
+        symbolsContainer.appendChild(div);
+      });
+    }
+
+    function highlightSymbol(div) {
+      if (gameMode !== 'sound-only') {
+        div.classList.add('highlight');
+        setTimeout(() => div.classList.remove('highlight'), 500 / speed);
+      }
+    }
+
+    function clickFeedback(div) {
+      div.classList.add('clicked');
+      setTimeout(() => div.classList.remove('clicked'), 500);
+    }
+
+    function speakSymbol(symbol) {
+      if (currentUtterance) synth.cancel();
+      currentUtterance = new SpeechSynthesisUtterance(symbol);
+      currentUtterance.lang = 'ja-JP';
+      currentUtterance.rate = speed;
+      synth.speak(currentUtterance);
+    }
+
+    function getRandomSymbol() {
+      const index = Math.floor(Math.random() * symbolsContainer.children.length);
+      return symbolsContainer.children[index];
+    }
+
+    function playSequence() {
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i >= sequence.length) return clearInterval(interval);
+        const div = sequence[i];
+        highlightSymbol(div);
+        if (gameMode !== 'alphabet-only') speakSymbol(div.textContent);
+        i++;
+      }, 1000 / speed);
+    }
+
+    function startGame() {
+      gameInProgress = true;
+      score = 0;
+      sequence = [];
+      currentRound = 0;
+      playerSequence = [];
+      document.getElementById('gameMessage').textContent = '';
+      updateScore();
+      nextRound();
+    }
+
+    function nextRound() {
+      currentRound++;
+      playerSequence = [];
+      sequence.push(getRandomSymbol());
+      setTimeout(playSequence, 1000 / speed);
+    }
+
+    function updateScore() {
+      score += currentRound * 10 * speed;
+      document.getElementById('scoreDisplay').textContent = `現在のスコア: ${score}`;
+    }
+
+    function endGame() {
+      gameInProgress = false;
+      document.getElementById('gameMessage').textContent = `ゲーム終了！合計スコア: ${score}`;
+    }
+
+    function handleSymbolClick(div) {
+      clickFeedback(div);
+      speakSymbol(div.textContent);
+      if (!gameInProgress) return;
+      playerSequence.push(div);
+      const index = playerSequence.length - 1;
+      if (div !== sequence[index]) return endGame();
+      if (playerSequence.length === sequence.length) {
+        updateScore();
+        nextRound();
+      }
+    }
+
+    function refreshGrid() {
+      generateSymbolGrid(parseInt(symbolCountSelect.value));
+    }
+
+    document.getElementById('symbolCount').addEventListener('change', refreshGrid);
+    document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', () => {
+      gameMode = document.querySelector('input[name="mode"]:checked').value;
+      refreshGrid();
+    }));
+    document.getElementById('startGameButton').addEventListener('click', startGame);
+    document.getElementById('speed').addEventListener('change', e => speed = parseFloat(e.target.value));
+    document.getElementById('randomizeSymbolsButton').addEventListener('click', refreshGrid);
+
+    populateSymbolCountOptions();
+    generateSymbolGrid(6);
+  </script>
+
+</body>
+</html>
